@@ -4,4 +4,6 @@ See:
 
 http://wiki.postgresql.org/wiki/Audit_trigger_91plus
 
-This fork supports JSONB, daily tables, and real-time updates using NOTIFY/LISTEN. It is suitable for production use.
+This fork supports JSONB and usage of partitioned tables.
+
+Test on PG11.
