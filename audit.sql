@@ -49,7 +49,7 @@ COMMENT ON SCHEMA audit IS 'Out-of-table audit/history logging tables and trigge
 --
 DROP TABLE IF EXISTS audit.logged_actions;
 CREATE TABLE audit.logged_actions (
-  event_id BIGSERIAL PRIMARY KEY,
+  event_id BIGSERIAL,
   schema_name TEXT NOT NULL,
   table_name TEXT NOT NULL,
   relid OID NOT NULL,
@@ -66,9 +66,9 @@ CREATE TABLE audit.logged_actions (
   row_data JSONB,
   changed_fields JSONB,
   statement_only BOOLEAN NOT NULL
-);
+) PARTITION BY RANGE(action_tstamp_stm);
 
-ALTER TABLE audit.logged_actions SET (AUTOVACUUM_ENABLED = FALSE, TOAST.AUTOVACUUM_ENABLED = FALSE);
+-- ALTER TABLE audit.logged_actions SET (AUTOVACUUM_ENABLED = FALSE, TOAST.AUTOVACUUM_ENABLED = FALSE);
 
 COMMENT ON TABLE audit.logged_actions IS 'History of auditable actions on audited tables, from audit.if_modified_func()';
 COMMENT ON COLUMN audit.logged_actions.event_id IS 'Unique identifier for each auditable event';
@@ -91,6 +91,8 @@ COMMENT ON COLUMN audit.logged_actions.statement_only IS '''t'' if audit event i
 CREATE OR REPLACE FUNCTION audit.if_modified_func() RETURNS TRIGGER AS $body$
 DECLARE
   audit_table_name VARCHAR;
+  audit_table_start_dt VARCHAR;
+  audit_table_end_dt VARCHAR;
   audit_row audit.logged_actions;
   include_values BOOLEAN;
   log_diffs BOOLEAN;
@@ -150,18 +152,24 @@ BEGIN
   END IF;
 
   audit_table_name = FORMAT(
-    'audit.logged_actions_%s_%s_%s',
+    'audit.logged_actions_%s_%s',
     TO_CHAR(CURRENT_TIMESTAMP, 'YYYY'),
-    TO_CHAR(CURRENT_TIMESTAMP, 'MM'),
-    TO_CHAR(CURRENT_TIMESTAMP, 'DD')
+    TO_CHAR(CURRENT_TIMESTAMP, 'MM')
+  );
+  audit_table_start_dt = FORMAT(
+	'%s',
+    date_trunc('month', CURRENT_DATE)
+  );
+  audit_table_end_dt = FORMAT(
+	'%s',
+    date_trunc('month', CURRENT_DATE) + interval '1 month'
   );
 
   IF TO_REGCLASS(audit_table_name) IS NULL THEN
-    EXECUTE FORMAT('CREATE TABLE %s (LIKE audit.logged_actions)', audit_table_name);
+    EXECUTE FORMAT('CREATE TABLE %s PARTITION OF audit.logged_actions FOR VALUES FROM(''%s'') TO (''%s'')', audit_table_name, audit_table_start_dt, audit_table_end_dt);
     EXECUTE FORMAT('ALTER TABLE %s SET (AUTOVACUUM_ENABLED = FALSE, TOAST.AUTOVACUUM_ENABLED = FALSE)', audit_table_name);
   END IF;
-  EXECUTE FORMAT('INSERT INTO %s VALUES (($1).*) RETURNING event_id', audit_table_name) INTO inserted_event_id USING audit_row;
-  PERFORM PG_NOTIFY('audit_replication', JSONB_BUILD_OBJECT('audit_table', audit_table_name, 'event_id', inserted_event_id)::TEXT);
+  EXECUTE FORMAT('INSERT INTO audit.logged_actions VALUES (($1).*) RETURNING event_id') INTO inserted_event_id USING audit_row;
 
   RETURN NULL;
 END;
