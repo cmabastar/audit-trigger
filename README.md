@@ -1,4 +1,4 @@
-A simple, customisable table audit system for PostgreSQL implemented using triggers.
+A simple, customisable table audit system for PostgreSQL11 implemented using triggers w/ JSONB and partitioning support.
 
 See:
 
